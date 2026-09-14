@@ -41,7 +41,7 @@ fi
 mkdir -p "$DEST" "$BIN_DIR" "$SKILL_DIR"
 
 # ---------- get source ----------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null || true)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 if [[ -n "${SCRIPT_DIR:-}" && -f "$SCRIPT_DIR/src/cua.swift" ]]; then
     SRC_DIR="$SCRIPT_DIR"           # running inside a clone
 else
@@ -90,7 +90,12 @@ cat <<'EOF'
 │ Recording.                                                           │
 └──────────────────────────────────────────────────────────────────────┘
 EOF
-read -r -p "Open the settings panes now? [Y/n] " ans </dev/tty 2>/dev/null || ans="y"
+ans="y"
+if [[ -z "${CUA_SKIP_SETTINGS:-}" ]]; then
+    read -r -p "Open the settings panes now? [Y/n] " ans </dev/tty 2>/dev/null || ans="y"
+else
+    ans="n"
+fi
 if [[ "${ans:-y}" != "n" && "${ans:-y}" != "N" ]]; then
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" || true
     sleep 1
