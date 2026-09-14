@@ -39,18 +39,20 @@ func post(_ e: CGEvent?) {
 
 // MARK: - overlay notifications
 
-func overlayBin() -> String? {
+func siblingBin(_ name: String) -> String? {
     let argv0 = CommandLine.arguments[0]
     var candidates: [String] = []
     if argv0.contains("/") {
-        candidates.append((argv0 as NSString).deletingLastPathComponent + "/cua-overlay")
+        candidates.append((argv0 as NSString).deletingLastPathComponent + "/" + name)
     }
     for d in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
-        candidates.append(String(d) + "/cua-overlay")
+        candidates.append(String(d) + "/" + name)
     }
-    candidates.append(NSHomeDirectory() + "/.local/share/cua/bin/cua-overlay")
+    candidates.append(NSHomeDirectory() + "/.local/share/cua/bin/" + name)
     return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
 }
+
+func overlayBin() -> String? { siblingBin("cua-overlay") }
 
 func spawnOverlay() {
     guard let path = overlayBin() else { return }
@@ -642,6 +644,23 @@ func cmdOverlay(_ a: [String]) {
     }
 }
 
+// MARK: guide — permission drag-and-drop animation
+
+func cmdGuide(_ a: [String]) {
+    guard a.count > 1 else {
+        fail("usage: cua guide screenrec|accessibility [--app path] [--timeout sec] [--demo]")
+    }
+    guard let path = siblingBin("cua-guide") else {
+        fail("cua-guide not installed — run build.sh / install.sh")
+    }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: path)
+    p.arguments = Array(a.dropFirst())
+    try? p.run()
+    p.waitUntilExit()
+    exit(p.terminationStatus)
+}
+
 // MARK: doctor — self-diagnostics
 
 func cmdDoctor() {
@@ -740,6 +759,7 @@ func runSub(_ a: [String]) {
     case "shot": cmdShot(a)
     case "do": cmdDo(a)
     case "overlay": cmdOverlay(a)
+    case "guide": cmdGuide(a)
     case "doctor": cmdDoctor()
     case "version", "--version", "-v": print("cua \(CUA_VERSION)")
     case "sleep":
@@ -770,6 +790,7 @@ func usage() -> Never {
                                        cua do 'click 500 300' 'type hi' 'key return' 'shot'
       cua sleep <ms>                   wait (useful inside `do`)
       cua overlay on|off|status        Devin's on-screen cursor ring
+      cua guide screenrec|accessibility  drag-and-drop permission helper
       cua doctor                       check permissions + setup
       cua version                      print version
     """)

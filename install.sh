@@ -21,7 +21,7 @@ die()  { printf '\033[31merror: %s\033[0m\n' "$*" >&2; exit 1; }
 if [[ "${1:-}" == "--uninstall" ]]; then
     say "Uninstalling DevinDesktopCUA…"
     "$BIN_DIR/cua" overlay off 2>/dev/null || true
-    rm -f "$BIN_DIR/cua" "$BIN_DIR/cua-shot" "$BIN_DIR/cua-overlay"
+    rm -f "$BIN_DIR/cua" "$BIN_DIR/cua-shot" "$BIN_DIR/cua-overlay" "$BIN_DIR/cua-guide"
     rm -rf "$SKILL_DIR"
     rm -rf "$DEST"
     say "Removed binaries, skill, and $DEST"
@@ -56,12 +56,14 @@ say "Compiling (swiftc -O)…"
 mkdir -p "$DEST/bin"
 swiftc -O -o "$DEST/bin/cua"         "$SRC_DIR/src/cua.swift"
 swiftc -O -o "$DEST/bin/cua-overlay" "$SRC_DIR/src/cua-overlay.swift"
+swiftc -O -o "$DEST/bin/cua-guide"   "$SRC_DIR/src/cua-guide.swift"
 cp "$SRC_DIR/bin/cua-shot" "$DEST/bin/cua-shot"
-chmod +x "$DEST/bin/cua" "$DEST/bin/cua-overlay" "$DEST/bin/cua-shot"
+chmod +x "$DEST/bin/cua" "$DEST/bin/cua-overlay" "$DEST/bin/cua-guide" "$DEST/bin/cua-shot"
 
 ln -sf "$DEST/bin/cua"         "$BIN_DIR/cua"
 ln -sf "$DEST/bin/cua-shot"    "$BIN_DIR/cua-shot"
 ln -sf "$DEST/bin/cua-overlay" "$BIN_DIR/cua-overlay"
+ln -sf "$DEST/bin/cua-guide"   "$BIN_DIR/cua-guide"
 
 # keep the source around for reference/rebuilds
 mkdir -p "$DEST/src"
@@ -80,8 +82,9 @@ fi
 cat <<'EOF'
 
 ┌─ One-time macOS permissions ──────────────────────────────────────────┐
-│ System Settings will open twice. In each pane, enable your agent app │
-│ (e.g. "Devin" — the app that runs the agent, not this terminal):     │
+│ System Settings will open twice. A guided animation shows where to   │
+│ drag your agent app (e.g. "Devin" — the app that runs the agent,     │
+│ not this terminal) in each pane:                                     │
 │                                                                      │
 │   1. Privacy & Security → Screen & System Audio Recording            │
 │   2. Privacy & Security → Accessibility                              │
@@ -92,14 +95,15 @@ cat <<'EOF'
 EOF
 ans="y"
 if [[ -z "${CUA_SKIP_SETTINGS:-}" ]]; then
-    read -r -p "Open the settings panes now? [Y/n] " ans </dev/tty 2>/dev/null || ans="y"
+    read -r -p "Launch the guided permission walkthrough now? [Y/n] " ans </dev/tty 2>/dev/null || ans="y"
 else
     ans="n"
 fi
 if [[ "${ans:-y}" != "n" && "${ans:-y}" != "N" ]]; then
-    open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture" || true
-    sleep 1
-    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" || true
+    say "Step 1/2: Screen Recording — follow the on-screen animation"
+    "$BIN_DIR/cua" guide screenrec || true
+    say "Step 2/2: Accessibility — follow the on-screen animation"
+    "$BIN_DIR/cua" guide accessibility || true
 fi
 
 # ---------- verify ----------

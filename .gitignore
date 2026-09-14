@@ -1,4 +1,5 @@
 shots/
 bin/cua
 bin/cua-overlay
+bin/cua-guide
 .DS_Store

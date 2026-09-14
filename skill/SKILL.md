@@ -150,9 +150,10 @@ Prefer semantic targeting over blind pixel clicks:
 ## Troubleshooting
 
 - Screenshot is wallpaper-only / `screencapture` errors → Devin lacks
-  **Screen Recording**: System Settings → Privacy & Security → Screen Recording
-  → enable Devin (restart required).
+  **Screen Recording**: run `cua guide screenrec` — it opens the pane and
+  plays a drag-and-drop animation showing the user what to do (restart
+  Devin required after).
 - Input commands run without error but nothing happens → Devin lacks
-  **Accessibility**: same panel → Accessibility → enable Devin.
+  **Accessibility**: run `cua guide accessibility`.
 - `osascript` control of another app may trigger a one-time **Automation**
   consent dialog — that's expected; tell the user to approve it.
