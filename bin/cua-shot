@@ -1,0 +1,3 @@
+#!/bin/sh
+# cua-shot — compat wrapper; the real implementation is `cua shot`.
+exec cua shot "$@"
