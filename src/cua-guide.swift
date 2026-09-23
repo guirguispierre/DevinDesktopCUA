@@ -8,6 +8,9 @@
 //   cua-guide screenrec|accessibility [--app /path/App.app] [--timeout sec] [--demo]
 //
 // --demo skips the permission check (for testing / screen recordings).
+// --check prints the grant state ("1"/"0") and exits. Used internally: the
+// preflight APIs cache TCC state per process, so a freshly spawned process is
+// the only reliable way to notice a grant made while this one was running.
 import AppKit
 import CoreGraphics
 import Foundation
@@ -75,6 +78,11 @@ Ctx.appName = Ctx.appPath.isEmpty ? "your agent app"
 Ctx.appIcon = Ctx.appPath.isEmpty
     ? NSWorkspace.shared.icon(forFileType: "app")
     : NSWorkspace.shared.icon(forFile: Ctx.appPath)
+
+if args.contains("--check") {
+    print(Ctx.perm.granted ? "1" : "0")
+    exit(0)
+}
 
 // ---------- coordinate helpers ----------
 // CGWindowList bounds are Quartz (top-left). Our window is Cocoa (bottom-left
@@ -152,8 +160,8 @@ final class GuideView: NSView {
         let src = chipCenter(), dst = dropPoint()
 
         // --- instruction banner ---
-        let msg = "To grant \(Ctx.perm.label): drag \(Ctx.appName) into the list — " +
-                  "or click + and choose it. Close the settings window when done."
+        let msg = "To grant \(Ctx.perm.label): turn on \(Ctx.appName) in the list — " +
+                  "or drag it in / click + to add it. Close the window when done."
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 15, weight: .medium),
             .foregroundColor: NSColor.white]
@@ -264,8 +272,11 @@ final class GuideView: NSView {
 // ---------- app ----------
 final class Guide: NSObject, NSApplicationDelegate {
     var win: NSWindow!
+    var doneWin: NSWindow!
     var view: GuideView!
     var missingSince: Date?
+    var checkInFlight = false
+    var lastPoll = Date.distantPast
     let start = Date()
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -287,9 +298,79 @@ final class Guide: NSObject, NSApplicationDelegate {
         win.contentView = view
         win.orderFrontRegardless()
 
+        // The overlay ignores mouse events so the user can work the settings
+        // pane through it — but that also means there's no way to dismiss it
+        // if grant detection fails (e.g. TCC attributes the check to a parent
+        // terminal instead of the agent app). A small "Done" button in its own
+        // event-accepting window guarantees an exit.
+        let btn = NSButton(title: "Done", target: NSApp,
+                           action: #selector(NSApplication.terminate(_:)))
+        btn.bezelStyle = .rounded
+        btn.frame = NSRect(x: 0, y: 0, width: 72, height: 28)
+        doneWin = NSWindow(contentRect: btn.frame, styleMask: .borderless,
+                           backing: .buffered, defer: false)
+        doneWin.isOpaque = false
+        doneWin.backgroundColor = .clear
+        doneWin.hasShadow = false
+        doneWin.level = win.level
+        doneWin.collectionBehavior = win.collectionBehavior
+        let scr = NSScreen.screens.first?.frame ?? union
+        doneWin.setFrameOrigin(NSPoint(x: scr.midX - 36, y: scr.maxY - 118))
+        doneWin.contentView = btn
+        doneWin.orderFrontRegardless()
+
         NSWorkspace.shared.open(URL(string: Ctx.perm.paneURL)!)
 
         Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in self.tick() }
+    }
+
+    func markGranted() {
+        guard !view.granted else { return }
+        view.granted = true
+        view.grantT = Date()
+        print("guide: \(Ctx.perm.label) granted")
+    }
+
+    // Path to this binary — argv[0], else PATH, else install locations.
+    func selfPath() -> String? {
+        let argv0 = CommandLine.arguments[0]
+        var candidates: [String] = []
+        if argv0.contains("/") { candidates.append(argv0) }
+        let leaf = (argv0 as NSString).lastPathComponent
+        for d in (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":") {
+            candidates.append(String(d) + "/" + leaf)
+        }
+        candidates.append(NSHomeDirectory() + "/.local/share/cua/bin/cua-guide")
+        candidates.append(NSHomeDirectory() + "/.local/bin/cua-guide")
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    // Re-check the grant in a freshly spawned copy of ourselves. The preflight
+    // APIs (CGPreflightScreenCaptureAccess / AXIsProcessTrusted) can keep
+    // returning the value they had at process start — granting while we run
+    // shows "Quit & Reopen" and never updates the running process. A new
+    // process gets a fresh TCC evaluation.
+    func pollGrant() {
+        guard !checkInFlight, Date().timeIntervalSince(lastPoll) > 1.0,
+              let path = selfPath() else { return }
+        lastPoll = Date()
+        let p = Process()
+        let pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = [Ctx.perm.rawValue, "--check"]
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        p.terminationHandler = { [weak self] proc in
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let out = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                self?.checkInFlight = false
+                if proc.terminationStatus == 0 && out == "1" { self?.markGranted() }
+            }
+        }
+        checkInFlight = true
+        do { try p.run() } catch { checkInFlight = false }
     }
 
     func tick() {
@@ -306,10 +387,8 @@ final class Guide: NSObject, NSApplicationDelegate {
             missingSince = nil
         }
 
-        if !Ctx.demo && !view.granted && Date().timeIntervalSince(start) > 1.5 && Ctx.perm.granted {
-            view.granted = true
-            view.grantT = Date()
-            print("guide: \(Ctx.perm.label) granted")
+        if !Ctx.demo && !view.granted && Date().timeIntervalSince(start) > 1.5 {
+            if Ctx.perm.granted { markGranted() } else { pollGrant() }
         }
         if view.granted, Date().timeIntervalSince(view.grantT!) > 1.4 {
             NSApp.terminate(nil)
